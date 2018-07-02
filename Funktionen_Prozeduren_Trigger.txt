@@ -1,15 +1,15 @@
 Funktionen
-	- Anzeigen, ob alles für einen Roboter vorhanden	Sa
-	- günstigsten Lieferanten auswählen --> Angebote hinzufügen (teurere von anderen Liefranden)	Ma
-	- Kontakdaten für einen Lieferanden anzeigen
-	- Materialbestellungen eines Monats anzeigen	Se
-	- Roboterpreis ermitteln und ausgeben --> MatPreis entfernen
-	- Anzeigen, welches Bauteil in welchem Roboter verbaut wird
+	- Anzeigen, ob alles für einen Roboter vorhanden (Text zurückgeben: vorhanden/nicht vorhanden)	Sa
+	- günstigsten Lieferanten auswählen (Name des Lieferanten zurückgeben)	Ma
+	- Roboterpreis ermitteln und ausgeben
 
 Prozeduren
-	- Bauteile für Roboter aus dem Lager entnehmen	Sa
-	- neuen Roboter anlegen		Se
-	- neue Bautile anlegen	Ma
+	- Bauteile für Roboter aus dem Lager entnehmen (Lagebestand verändern)	Sa
+	- neuen Roboter anlegen	(mit allen Parametern)	Se
+	- neue Bauteile anlegen (mit allen Parametern)	Ma
+	- Kontakdaten für einen Lieferanden anzeigen (alles ausgeben)
+	- Materialbestellungen eines Monats anzeigen (aufgelistet ausgeben)	Se
+	- Anzeigen, welches Bauteil in welchem Roboter verbaut wird (alle auflisten mit Stückzahl)
 
 Trigger
 	- Meldung, wenn IstStk < SollStk	Ma, Sa, Se

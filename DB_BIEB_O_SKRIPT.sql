@@ -94,7 +94,6 @@ create table Roboter
 (
 	RID				int				not null	identity(1,1)
 ,	RBezeichnung	varchar(80)		not null
-,	MatKosten		decimal(7,2)	not null	default 0
 ,	ProdKosten		decimal(7,2)	not null
 )
 go
@@ -188,6 +187,13 @@ values
 ,	(25.00,	11,	6)
 ,	(80.00,	5,	5)
 ,	(20.00,	13,	7)
+,	(14.00,	2,	3)
+,	(12.00,	2,	6)
+,	(26.00,	13,	7)
+,	(16.00,	15,	7)
+,	(35.00,	4,	6)
+,	(11.00,	12,	4)
+,	(14.00,	15,	7)
 go
 
 --Einfügen für Tabelle Warenkorb
@@ -228,20 +234,20 @@ go
 --Einfügen für Tabelle Bauteile
 insert into Bauteile (BBezeichnung, VKPreis)
 values
-	('Reifen',			25.00)
-,	('Arm',				15.00)
-,	('Sensor',			45.00)
-,	('Display',			35.00)
-,	('Motor',			85.00)
-,	('Netzteil',		25.00)
-,	('Prozessor',		65.00)
+	('Reifen',			24.99)
+,	('Arm',				14.99)
+,	('Sensor',			44.99)
+,	('Display',			34.99)
+,	('Motor',			84.99)
+,	('Netzteil',		24.95)
+,	('Prozessor',		64.98)
 ,	('Gelenk',			10.00)
 ,	('Verbindungsstück',10.00)
-,	('Lackierung',		20.00)
-,	('Lautsprecher',	30.00)
-,	('Farbpatrone',		15.00)
-,	('Magazin',			25.00)
-,	('Greifarm',		30.00)
+,	('Lackierung',		19.97)
+,	('Lautsprecher',	28.90)
+,	('Farbpatrone',		14.99)
+,	('Magazin',			24.89)
+,	('Greifarm',		29.99)
 ,	('Objektbehälter',	10.00)
 go
 
@@ -304,13 +310,13 @@ values
 go
 
 --Einfügen für Tabelle Roboter
-insert into Roboter(RBezeichnung, MatKosten, ProdKosten)
+insert into Roboter(RBezeichnung, ProdKosten)
 values
-	('Aktenschwärzer',			0,	50.00)
-,	('Fill-Phil (aufstocker)',	0,	50.00)
-,	('Sortierer',				0,	70.00)
-,	('Büro-Bote',				0,	80.00)
-,	('Disziplinierer',			0,	40.00)
+	('Aktenschwärzer',			50.00)
+,	('Fill-Phil (aufstocker)',	50.00)
+,	('Sortierer',				70.00)
+,	('Büro-Bote',				80.00)
+,	('Disziplinierer',			40.00)
 go
 
 --Einfügen für Tabelle Ansprechpartner
@@ -491,34 +497,6 @@ go
 
 
 
-
---Nacharbeiten der Testdaten in Roboter
-	--> Ermitteln und Setzen der Materialkosten für alle Roboter
-if exists (select * from sys.objects where name= 'P_MatPreisSetzen' and type= 'P')
-begin
-	drop procedure P_MatPreisSetzen
-end
-go
-create procedure P_MatPreisSetzen
-as
-begin
-	declare
-	@counter int = 1,
-	@AnzahlZeilen int =(select count(*) from Roboter)
-	while (@counter < @AnzahlZeilen+1)
-	begin
-		update Roboter
-		set MatKosten = (select sum(VKPreis)
-						from Roboter r join Roboterkomponenten rk on r.RID = rk.RID
-						join Bauteile b on rk.BID = b.BID
-						where r.RID = @counter)
-		where RID = @counter
-		set @counter = @counter +1
-	end
-end
-go
-exec P_MatPreisSetzen
-
 --Nacharbeiten der Testdaten in Lagerbestand
 	--> Ermitteln und Setzen der vorhandenen Stückzahl für alle Bauteile
 if exists (select * from sys.objects where name= 'P_EinkaufszahlenSetzen' and type= 'P')
@@ -555,7 +533,20 @@ drop procedure P_EinkaufszahlenSetzen
 
 
 /******************************Erstellen der Funktionen/create function*******************************/
+/*if exists (select * from sys.objects where name= 'FN_Kontaktdaten' and type= 'FN')
+begin
+	drop function FN_Kontaktdaten
+end
+go
+create function FN_Kontaktdaten(@Lieferant varchar(80))
+returns int
+as
+begin
+	
 
+	return 0
+end
+*/
 
 
 
