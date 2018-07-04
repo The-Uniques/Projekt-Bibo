@@ -211,7 +211,6 @@ values
 ,	(2,	23,		10,	5)
 ,	(1,	100,	12,	6)
 ,	(1,	110,	14,	7)
-,	(1,	0,		15,	8)
 ,	(1,	45,		11,	9)
 ,	(2,	50,		4,	9)
 ,	(3,	13,		13,	9)
@@ -313,7 +312,7 @@ go
 insert into Roboter(RBezeichnung, ProdKosten)
 values
 	('Aktenschwärzer',			50.00)
-,	('Fill-Phil (aufstocker)',	50.00)
+,	('Fill-Phil (Aufstocker)',	50.00)
 ,	('Sortierer',				70.00)
 ,	('Büro-Bote',				80.00)
 ,	('Disziplinierer',			40.00)
@@ -510,15 +509,20 @@ begin
 	declare
 	@counter int = 1,
 	@AnzahlZeilen int =(select count(*) from Lagerbestand)
-	while (@counter <= @AnzahlZeilen)
-	begin
-		update Lagerbestand
-		set IstStk = (select sum(WStückzahl)
-					 from Warenkorb w join Angebot a on w.AID = a.AID
-					 where BID = @counter)
-		where BID = @counter
-		set @counter = @counter + 1
-	end
+	while (@counter <= @AnzahlZeilen) --jede Zeile in Lagerbestand durchlaufen
+		begin
+			--wenn ein Bauteil noch nicht eingekauft wurde wird seine Iststückzahl im Lager nicht geändert,
+			--sie ist per default 0
+			if not exists (select * from Warenkorb w join Angebot a on w.AID = a.AID where BID = @counter)
+				set @counter = @counter + 1
+			--Eingekaufte Stückzahl für jedes Bauteil ermitteln, summieren und in Lagerbestand eintragen
+			update Lagerbestand
+			set IstStk = (select sum(WStückzahl)
+						 from Warenkorb w join Angebot a on w.AID = a.AID
+						 where BID = @counter)
+			where BID = @counter
+			set @counter = @counter + 1
+		end
 end
 go
 exec P_EinkaufszahlenSetzen
@@ -528,30 +532,496 @@ drop procedure P_EinkaufszahlenSetzen
 
 
 
-/**********************************Erstellen der Sichten/create view**********************************/
-
-
-
 /******************************Erstellen der Funktionen/create function*******************************/
-/*if exists (select * from sys.objects where name= 'FN_Kontaktdaten' and type= 'FN')
+--Ermitteln des Preises für einen Roboter
+	-- Parameter:	Robotername
+	-- Rückgabe:	Preis, Null falls falscher Name übergeben wurde
+if exists (select * from sys.objects where name = 'FN_RoboterPreis' and type = 'FN')
 begin
-	drop function FN_Kontaktdaten
+	drop function FN_RoboterPreis
 end
 go
-create function FN_Kontaktdaten(@Lieferant varchar(80))
+create function FN_RoboterPreis(@RoboterName varchar(80))
+returns decimal(7,2)
+as
+begin
+	declare
+	@preis decimal(7,2) =	--Summe der Materialkosten der verwendeten Bauteile
+							(select sum(VKPreis)
+							from Roboter r join Roboterkomponenten rk on r.RID = rk.RID
+										   join Bauteile b on rk.BID = b.BID
+							where r.RBezeichnung = @RoboterName)
+							+
+							--Produktionskosten des Roboters
+							(select ProdKosten
+							from Roboter
+							where RBezeichnung = @RoboterName)
+	return @preis
+end
+go
+
+/*
+select dbo.FN_RoboterPreis('Aktenschwärzer') --Engebnis: 399,84
+select dbo.FN_RoboterPreis('Sortierer') --Ergebnis: 409.85
+select dbo.FN_RoboterPreis('Diszipliniere') --falscher Name, Ergebnis: NULL
+*/
+
+
+--Anzeigen, ob für einen Roboter alle benötigten Bauteile auf Lager sind
+	-- Parameter:	Robotername, Anzahl der Roboter
+	-- Rückgabe:	0 falls alles vorhanden
+	--				-1 wenn etwas fehlt
+	--				-2 bei falschem Roboternamen
+	--				-3 bei Anzahl < 1
+if exists (select * from sys.objects where name = 'FN_BauteileVorhanden' and type = 'FN')
+begin
+	drop function FN_BauteileVorhanden
+end
+go
+create function FN_BauteileVorhanden(@RoboterName varchar(80), @Anzahl int)
 returns int
 as
 begin
+	declare @rueck int = 0
 	
+	--falsche Bezeichnung abfangen
+	if not exists (select * from Roboter where RBezeichnung = @RoboterName)
+	begin
+		set @rueck = -2
+		return @rueck
+	end
+	--falsche Anzahl abfangen
+	else if @Anzahl < 1
+		begin
+			set @rueck = -3
+			return @rueck
+		end
 
-	return 0
+	declare
+	KostenCursor cursor
+	scroll
+	for			select IstStk, RKStückzahl
+				from Roboter r join Roboterkomponenten rk on r.RID = rk.RID
+							   join Lagerbestand l on rk.BID = l.BID
+				where RBezeichnung = @RoboterName
+
+	declare @istStk decimal(7,2), @rkStk decimal(7,2)
+
+	open KostenCursor
+	fetch first
+	from KostenCursor 
+	into @istStk, @rkStk
+
+	while @@FETCH_STATUS = 0
+		begin
+			--wenn die Iststückzahl kleiner als die benötigte Stückzahl ist, wirde der Rückgabewert -1 gesetzt,
+			--die Schleife verlassen und der Wert zurückgegeben
+			if (@istStk < @rkStk * @Anzahl)
+				begin
+					set @rueck = -1
+					break
+				end
+			fetch next
+			from KostenCursor 
+			into @istStk, @rkStk
+		end
+	return @rueck
+end 
+go
+
+/*
+select dbo.FN_BauteileVorhanden('Aktenschwärzer',7) --alles vorhanden, Ergbenis: 0
+select dbo.FN_BauteileVorhanden('Aktenschwärzer',8) --Bauteile fehlen, Ergebnis: -1
+select dbo.FN_BauteileVorhanden('Fill-Phil (Aufstocker)',1)	--Bauteile fehlen, Ergebnis: -1
+select dbo.FN_BauteileVorhanden('Sortieren',1)	--falscher Name, Ergebnis: -2
+select dbo.FN_BauteileVorhanden('Disziplinierer',0)	--falsche Anzahl, Ergebnis: -3
+select dbo.FN_BauteileVorhanden('Büro-Bote',-1)	--falsche Anzahl, Ergebnis: -3
+*/
+
+
+--günstigsten Lieferanten für ein Bauteil ermitteln
+	-- Parameter:	Bauteilname
+	-- Rückgabe:	Lieferantenname, Null falls falscher Name übergeben wurde
+if exists (select * from sys.objects where name = 'FN_Lieferantenauswahl' and type = 'FN')
+begin
+	drop function FN_Lieferantenauswahl
 end
+go
+create function FN_Lieferantenauswahl(@Bauteil varchar(80))
+returns varchar(50)
+as
+begin
+	--den Günstigsten Lieferanten ermitteln und zurückgeben
+	declare @Lieferant varchar(50) =	(select top 1 LName
+										from Lieferanten l join Angebot a on l.LID = a.LID
+														   join Bauteile b on a.BID = b.BID
+										where BBezeichnung = @Bauteil
+										order by APreis)
+	return @Lieferant
+end
+go
+
+/*
+select dbo.FN_Lieferantenauswahl('Arm') --Ergebnis: Future Industrys
+select dbo.FN_Lieferantenauswahl('Netzteil') --Ergebnis: Trumpf
+select dbo.FN_Lieferantenauswahl('Moto') --Ergebnis: NULL
 */
 
 
 
 /******************************Erstellen der Prozeduren/create procedure******************************/
+--Anzeigen, welche Bauteile in einem Roboter verbaut werden
+	-- Parameter:	Robotername
+	-- Rückgabe:	- 
+if exists (select * from sys.objects where name = 'P_RoboterBauteile' and type = 'P')
+drop procedure P_RoboterBauteile
+go
+create procedure P_RoboterBauteile(@RoboterName varchar(80))
+as
+begin try
+	--falsche Eingaben abfangen
+	--ungültiger Robotername
+	if not exists (select * from Roboter where RBezeichnung = @RoboterName)
+		throw 51000, 'Dieser Roboter ist nicht vorhanden', 0
+	
+	declare
+	BauteileCursor cursor
+	scroll
+	for		select BBezeichnung, RKStückzahl
+			from Roboter r join Roboterkomponenten rk on r.RID = rk.RID
+						   join Bauteile b on rk.BID = b.BID
+			where RBezeichnung = @RoboterName
+
+	declare @bezeichnung varchar(80), @stückzahl int
+
+	--Cursor auslesen
+	open BauteileCursor
+	fetch first
+	from BauteileCursor 
+	into @bezeichnung, @stückzahl
+
+	print concat('Im Roboter ', @RoboterName, ' werden folgende Bauteile verbaut:')
+
+	--Baueile aufgelistet ausgeben
+	while @@FETCH_STATUS = 0
+		begin
+			print concat(@stückzahl, 'x ', @bezeichnung)
+			fetch next
+			from BauteileCursor 
+			into @bezeichnung, @stückzahl
+		end
+	close BauteileCursor
+	deallocate BauteileCursor
+end try
+begin catch
+	--Fehler abfangen
+	--ungültiger Robotername
+	if error_number()=51000
+		begin
+			print error_message()
+			print concat('Der Roboter ', @RoboterName, ' ist nicht vorhnaden, bitte überprüfen Sie den Namen!')
+		end
+end catch
+go
+
+/*
+exec P_RoboterBauteile 'Aktenschwärzer' --funktioniert
+exec P_RoboterBauteile 'Büro-Bote' --funktioniert
+exec P_RoboterBauteile 'Disziplin' --funktioniert nicht, falscher Name
+*/
+
+
+--Anzeigender Kontakdaten eines Lieferanten
+	-- Parameter:	Lieferantenname
+	-- Rückgabe:	- 
+if exists (select * from sys.objects where name= 'P_KontakdatenAnzeigen' and type= 'P')
+begin
+	drop procedure P_KontakdatenAnzeigen
+end
+go
+create procedure P_KontakdatenAnzeigen(@LieferantName varchar(80))
+as
+begin try
+	--falsche Eingaben abfangen
+	--ungültiger Lieferantenname
+	if not exists (select * from Lieferanten where LName = @LieferantName)
+		throw 51000, 'Dieser Lieferant ist nicht vorhanden', 0
+	
+	declare
+	LieferantCursor cursor
+	scroll
+	for		select Email, TelFest, akadTitel, Vorname, Nachname, Land, PLZ ,Ort, Straße, HNr
+			from Lieferanten l join Ansprechpartner a on l.APartnerID = a.APartnerID
+							   join Adressen adr on adr.AdrID = l.AdrID
+			where LName = @LieferantName
+	
+	declare
+	@Email varchar(50)
+	,@TelFest varchar(20)
+	,@akadTitel varchar(20)
+	,@Vorname varchar(50)
+	,@Nachname varchar(50)
+	,@Land char(2)
+	,@PLZ char(5)
+	,@Ort varchar(50)
+	,@Straße varchar(50)
+	,@HNr varchar(10)
+
+	--Cursor auslesen
+	open LieferantCursor
+	fetch first 
+	from LieferantCursor
+	into @Email, @TelFest, @akadTitel, @Vorname, @Nachname, @Land, @PLZ, @Ort, @Straße, @HNr
+
+	--Daten aufgelistet ausgeben
+	print @LieferantName + ':'
+	print concat('Adresse: ', @Straße, ' ', @HNr, ', ', @PLZ, ' ', @Ort, ', ', @Land)
+	print concat('Tel.: ', @Telfest)
+	print concat('EMail: ', @Email)
+	print concat('Ansprechpartner: ', @akadTitel, ' ', @Vorname, ' ', @Nachname)
+
+	close LieferantCursor
+	deallocate LieferantCursor
+end try
+begin catch
+	--Fehler abfangen
+	--ungültiger Lieferantenname
+	if error_number()=51000
+		begin
+			print error_message()
+			print concat('Der Lieferant ', @Lieferantname, ' ist nicht vorhnaden, bitte überprüfen Sie den Namen!')
+		end
+end catch
+go
+
+/*
+exec P_KontakdatenAnzeigen 'Future Industrys' --funktioniert
+exec P_KontakdatenAnzeigen 'Ben Driesel und Sohn' --funktioniert
+exec P_KontakdatenAnzeigen 'Krup' --funktioniert nicht, falscher Name
+*/
+
+--Materialbestellungen eines Monats auflisten
+	-- Parameter:	Monatsnummer, Jahreszahl
+	-- Rückgabe:	- 
+if exists (select * from sys.objects where name= 'P_MaterialbestellungenAnzeigen' and type= 'P')
+begin
+	drop procedure P_MaterialbestellungenAnzeigen
+end
+go
+create procedure P_MaterialbestellungenAnzeigen(@Monat tinyint, @Jahr int)
+as
+begin try
+	--falsche Eingaben abfangen
+	--ungültige Monatsnummer
+	if @Monat < 1 or @Monat > 12
+		throw 51000, 'Falsche Eingabe', 0
+	--Eingaben von Monaten und/oder Jahren in der Zukunft abfangen
+	else if (@Jahr = YEAR(GETDATE()) and @Monat > MONTH(GETDATE())) or @Jahr > YEAR(GETDATE())
+		throw 51001, 'Falsche Eingabe', 0
+	--Bieb.O wurde 10.2017 gegründet, frühere Eingaben abfangen
+	else if (@Jahr = 2017 and @Monat < 10) or @Jahr < 2017
+		throw 51002, 'Falsche Eingabe', 0
+				
+	declare 
+	BestellungCursor cursor
+	scroll
+	for		select Bestelldatum, BBezeichnung, WStückzahl, LName, APreis
+			from Warenkorb w join Einkaeufe e on w.EID = e.EID
+							 join Angebot a on w.AID = a.AID
+							 join Bauteile b on b.BID = a.BID
+							 join Lieferanten l on a.LID = l.LID
+			where MONTH(Bestelldatum) = @Monat
+	
+	declare @Bestelldatum date, @BBezeichnung varchar(80), @WStückzahl int, @LName varchar(80), @APreis decimal(7,2)
+	
+	--Cursor auslesen		
+	open BestellungCursor
+	fetch first
+	from BestellungCursor
+	into @Bestelldatum, @BBezeichnung, @WStückzahl, @LName, @APreis
+
+	print concat('In ', @Monat, ' ', @Jahr, ' wurden bestellt:') 
+
+	--Meldung ausgeben dass nichts bestellt wurde, falls nichts im Cursor steht
+	if @@FETCH_STATUS != 0
+		print 'Es gab in diesem Monat keine Bestellungen'
+
+	--Daten aufgelistet ausgeben
+	else
+		begin
+			while @@FETCH_STATUS = 0
+				begin
+					print concat(@Bestelldatum, '   ', @WStückzahl, 'x ',@BBezeichnung, ' von '
+								, @LName, ' zu ', @APreis, '€ pro Stück')
+					fetch next
+					from BestellungCursor
+					into @Bestelldatum, @BBezeichnung, @WStückzahl, @LName, @APreis
+				end
+		end
+	close BestellungCursor
+	deallocate BestellungCursor
+end try
+begin catch
+	--Fehler abfangen
+	--ungültige Monatsnummer
+	if error_number()=51000
+	begin
+		print error_message()
+		print concat('Der Monat ', @Monat, ' existiert nicht, bitte überprüfen Sie die Eingabe!')
+	end
+	--Abfrage liegt in der zukunft
+	if error_number()=51001
+	begin
+		print error_message()
+		print concat('Der Monat ', @Monat, ' ', @Jahr, ' liegt in der Zukunft, bitte überprüfen Sie die Eingabe!')
+	end
+	--ungültiges jahr
+	else if error_number()=51002
+	begin
+		print error_message()
+		print concat('Der Monat ', @Monat, ' ', @Jahr, ' liegt vor der Gründung von Bieb.O, bitte überprüfen Sie die Eingabe!')
+	end
+end catch
+go
+
+/*
+exec P_MaterialbestellungenAnzeigen 5, 2018 --es gab Bestellungen, funktioniert
+exec P_MaterialbestellungenAnzeigen 1, 2018 --es gab keine Bestellungen, funktioniert
+exec P_MaterialbestellungenAnzeigen 10, 2017 --gültiges Jahr, gültiger Monat, es gab keine Bestellungen
+exec P_MaterialbestellungenAnzeigen 5, 2016 --Fehler: ungültiges Jahr
+exec P_MaterialbestellungenAnzeigen 9, 2017 --Fehler: gültiges Jahr, ungültiger Monat
+exec P_MaterialbestellungenAnzeigen 0, 2018 --Fehler: falscher Monat
+exec P_MaterialbestellungenAnzeigen 8, 2018 --Fehler: Monat im gegeben Jahr noch nicht erreicht
+*/
+
+
+--alle benötigeten Bauteile für einen Roboter aus dem Lager nehmen
+	-- Parameter:	Robotername, Anzahl der Roboter
+	-- Rückgabe:	- 
+if exists (select * from sys.objects where name= 'P_MaterialReservieren' and type= 'P')
+begin
+	drop procedure P_MaterialReservieren
+end
+go
+create procedure P_MaterialReservieren(@RoboterName varchar(80), @Anzahl int)
+as
+begin try
+	--Fehler auslösen, falls Bauteile fehlen
+	if (select dbo.FN_BauteileVorhanden(@RoboterName, @Anzahl)) < 0
+			throw 51000, 'Bauteille fehlen', 0
+
+	declare
+	BauteileCursor cursor
+	scroll
+	for		select b.BID, RKStückzahl
+			from Roboter r join Roboterkomponenten rk on r.RID = rk.RID
+						   join Bauteile b on rk.BID = b.BID
+			where RBezeichnung = @RoboterName
+
+	declare @bid int, @rkStück int
+
+	open BauteileCursor
+	fetch first 
+	from BauteileCursor
+	into @bid, @rkStück
+
+	--Cursor auslesen, Stückzahl in Lagerbestand ändern
+	while @@FETCH_STATUS = 0
+		begin
+			update Lagerbestand
+			set IstStk -= @rkStück * @Anzahl
+			where BID = @bid
+			
+			fetch next
+			from BauteileCursor
+			into @bid, @rkStück 
+		end
+
+	close BauteileCursor
+	deallocate BauteileCursor
+end try
+begin catch
+	--Fehler abfangen
+	--Bauteile fehlen
+	if error_number()=51000
+		begin
+			print error_message()
+			print concat('Für den Roboter ', @RoboterName, ' fehlen folgende Bauteile:')
+
+			declare
+			FehlteileCursor cursor
+			scroll
+					--Bauteile ermitteln, die nicht mehr ausreichend vorhanden sind
+			for		select BBezeichnung, RKStückzahl, IstStk
+					from Roboter r join Roboterkomponenten rk on r.RID = rk.RID
+								   join Bauteile b on rk.BID = b.BID
+								   join Lagerbestand lb on rk.BID = lb.BID
+					where RBezeichnung = @RoboterName and  IstStk < RKStückzahl * @Anzahl
+
+			declare @bezeichnung varchar(80), @stückBenötigt int, @stückVorhanden int
+
+			open FehlteileCursor
+			fetch first
+			from FehlteileCursor 
+			into @bezeichnung, @stückBenötigt, @stückVorhanden
+
+			--Cursor auslesen, Bauteile auflisten
+			while @@FETCH_STATUS = 0
+				begin
+					print concat(@stückBenötigt * @Anzahl - @stückVorhanden , 'x ', @bezeichnung)
+					fetch next
+					from FehlteileCursor 
+					into @bezeichnung, @stückBenötigt, @stückVorhanden
+				end
+			close FehlteileCursor
+			deallocate FehlteileCursor
+		end
+end catch
+go
+
+/*
+exec P_MaterialReservieren 'Fill-Phil (Aufstocker)', 1 --Fehler, es fehlt 1x Magazin
+exec P_MaterialReservieren 'Aktenschwärzer', 5 --funktioniert, 2x Meldung Mindestbestand unterschritten
+*/
 
 
 
 /********************************Erstellen der Trigger/create trigger*********************************/
+--Ausgeben einer Meldung, wenn im Lager die Iststückzahl unter die Sollstückzahl fällt
+if exists (select * from sys.triggers where name = 'TR_Stückzahl')
+begin
+	drop trigger TR_Stückzahl
+end
+go
+create trigger TR_Stückzahl
+on lagerbestand
+after update
+as
+begin
+	declare 
+	@istStk int
+	--betreffende Werte aus inserted auslesen
+	,@mdstStk int = (select MdstStk from Lagerbestand where BID = (select BID from inserted))
+	,@Bauteil varchar(80) = (select BBezeichnung from Bauteile where BID = (select BID from inserted))
+
+	if exists (select * from inserted) and exists (select * from deleted)
+		begin
+			select @istStk = IstStk
+			from inserted
+
+			--falls Stückzahl unter die Mindeststückzahl fällt wird eine Meldung ausgegeben
+			if @istStk < @mdstStk --(select MdstStk from Lagerbestand where BID = (select BID from inserted))
+				begin
+					print concat('Mindestbestand von ', @Bauteil,' unterschritten, bitte nachbestellen!')
+					print concat('Mdst: ', @mdstStk)
+					print concat('Ist: ', @istStk)
+				end
+		end
+end
+go
+
+/*
+update Lagerbestand
+set IstStk = 0
+where BID = 13
+*/
