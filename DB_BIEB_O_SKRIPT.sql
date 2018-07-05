@@ -605,7 +605,7 @@ begin
 							   join Lagerbestand l on rk.BID = l.BID
 				where RBezeichnung = @RoboterName
 
-	declare @istStk decimal(7,2), @rkStk decimal(7,2)
+	declare @istStk int, @rkStk int
 
 	open KostenCursor
 	fetch first
@@ -982,6 +982,35 @@ go
 /*
 exec P_MaterialReservieren 'Fill-Phil (Aufstocker)', 1 --Fehler, es fehlt 1x Magazin
 exec P_MaterialReservieren 'Aktenschwärzer', 5 --funktioniert, 2x Meldung Mindestbestand unterschritten
+*/
+
+
+--alle benötigeten Bauteile für einen Roboter aus dem Lager nehmen
+	-- Parameter:	Robotername, Anzahl der Roboter
+	-- Rückgabe:	- 
+if exists (select * from sys.objects where name= 'P_BauteilEinfügen' and type= 'P')
+begin
+	drop procedure P_BauteilEinfügen
+end
+go
+create procedure P_BauteilEinfügen(@Bauteil varchar(80), @VKPreis decimal(7,2), @MdstStk int)
+as
+begin
+	--Einfügen für Tabelle Bauteile
+	insert into Bauteile (BBezeichnung, VKPreis)
+	values (@Bauteil, @VKPreis)
+
+	--Einfügen für Tabelle Lagerbestand
+	insert into Lagerbestand (LagerID, BID, MdstStk)
+	values (1, (select BID from Bauteile where BBezeichnung = @Bauteil), @MdstStk)
+
+	print concat('Bauteil ', @Bauteil, ' erfolgreich eingefügt.')
+	print concat('VKPreis: ', @VKPreis, '	Mindestbestand: ', @MdstStk)
+end
+go
+
+/*
+exec P_BauteilEinfügen 'Stange', 13.99, 10 --funktioniert
 */
 
 
