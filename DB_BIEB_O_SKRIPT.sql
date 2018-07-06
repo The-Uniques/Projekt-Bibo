@@ -7,6 +7,7 @@
 /*******************************Erstellen der Datenbank/create database*******************************/
 use master
 go
+
 --Datenbank löschen und Löschen der Backups
 exec msdb.dbo.sp_delete_database_backuphistory @database_name='BIEB_O'
 go
@@ -25,6 +26,7 @@ go
 
 use BIEB_O
 go
+
 --Erstellen der Tabelle Angebot
 if exists (select * from sys.objects where name = 'Angebot')
 drop table Angebot
@@ -125,7 +127,6 @@ create table Lieferanten
 ,	TelFest			varchar(20)		not null
 )
 go
-
 
 --Erstellen der Tabelle Adressen
 if exists (select * from sys.objects where name = 'Adressen')
@@ -381,10 +382,45 @@ values
 ,	(1,	11,	10)
 go
 
+
 --Nacharbeiten der Testdaten in Ansprechpartner
 update Ansprechpartner
 set akadTitel = null
 where akadTitel = ''
+
+--Nacharbeiten der Testdaten in Lagerbestand
+	--> Ermitteln und Setzen der vorhandenen Stückzahl für alle Bauteile
+if exists (select * from sys.objects where name= 'P_EinkaufszahlenSetzen' and type= 'P')
+begin
+	drop procedure P_EinkaufszahlenSetzen
+end
+go
+create procedure P_EinkaufszahlenSetzen
+as
+begin
+	declare
+	@counter int = 1,
+	@AnzahlZeilen int =(select count(*) from Lagerbestand)
+	while (@counter <= @AnzahlZeilen) --jede Zeile in Lagerbestand durchlaufen
+		begin
+			--wenn ein Bauteil noch nicht eingekauft wurde wird seine Iststückzahl im Lager nicht geändert,
+			--sie ist per default 0
+			if not exists (select * from Warenkorb w join Angebot a on w.AID = a.AID where BID = @counter)
+				set @counter = @counter + 1
+			--Eingekaufte Stückzahl für jedes Bauteil ermitteln, summieren und in Lagerbestand eintragen
+			update Lagerbestand
+			set IstStk = (select sum(WStückzahl)
+						 from Warenkorb w join Angebot a on w.AID = a.AID
+						 where BID = @counter)
+			where BID = @counter
+			set @counter = @counter + 1
+		end
+end
+go
+exec P_EinkaufszahlenSetzen
+--Prozedur wieder löschen, da sie nur einmalig gültig aufgerufen werden kann, um den Lagerbestand aus
+--allen Einkäufen zu ermitteln
+drop procedure P_EinkaufszahlenSetzen
 
 
 
@@ -496,42 +532,6 @@ go
 
 
 
---Nacharbeiten der Testdaten in Lagerbestand
-	--> Ermitteln und Setzen der vorhandenen Stückzahl für alle Bauteile
-if exists (select * from sys.objects where name= 'P_EinkaufszahlenSetzen' and type= 'P')
-begin
-	drop procedure P_EinkaufszahlenSetzen
-end
-go
-create procedure P_EinkaufszahlenSetzen
-as
-begin
-	declare
-	@counter int = 1,
-	@AnzahlZeilen int =(select count(*) from Lagerbestand)
-	while (@counter <= @AnzahlZeilen) --jede Zeile in Lagerbestand durchlaufen
-		begin
-			--wenn ein Bauteil noch nicht eingekauft wurde wird seine Iststückzahl im Lager nicht geändert,
-			--sie ist per default 0
-			if not exists (select * from Warenkorb w join Angebot a on w.AID = a.AID where BID = @counter)
-				set @counter = @counter + 1
-			--Eingekaufte Stückzahl für jedes Bauteil ermitteln, summieren und in Lagerbestand eintragen
-			update Lagerbestand
-			set IstStk = (select sum(WStückzahl)
-						 from Warenkorb w join Angebot a on w.AID = a.AID
-						 where BID = @counter)
-			where BID = @counter
-			set @counter = @counter + 1
-		end
-end
-go
-exec P_EinkaufszahlenSetzen
---Prozedur wieder löschen, da sie nur einmalig gültig aufgerufen werden kann, um den Lagerbestand aus
---allen Einkäufen zu ermitteln
-drop procedure P_EinkaufszahlenSetzen
-
-
-
 /******************************Erstellen der Funktionen/create function*******************************/
 --Ermitteln des Preises für einen Roboter
 	-- Parameter:	Robotername
@@ -560,11 +560,10 @@ begin
 end
 go
 
-/*
-select dbo.FN_RoboterPreis('Aktenschwärzer') --Engebnis: 399,84
-select dbo.FN_RoboterPreis('Sortierer') --Ergebnis: 409.85
-select dbo.FN_RoboterPreis('Diszipliniere') --falscher Name, Ergebnis: NULL
-*/
+--Testfälle:
+--select dbo.FN_RoboterPreis('Aktenschwärzer') --Engebnis: 399,84
+--select dbo.FN_RoboterPreis('Sortierer') --Ergebnis: 409.85
+--select dbo.FN_RoboterPreis('Diszipliniere') --falscher Name, Ergebnis: NULL
 
 
 --Anzeigen, ob für einen Roboter alle benötigten Bauteile auf Lager sind
@@ -629,14 +628,13 @@ begin
 end 
 go
 
-/*
-select dbo.FN_BauteileVorhanden('Aktenschwärzer',7) --alles vorhanden, Ergbenis: 0
-select dbo.FN_BauteileVorhanden('Aktenschwärzer',8) --Bauteile fehlen, Ergebnis: -1
-select dbo.FN_BauteileVorhanden('Fill-Phil (Aufstocker)',1)	--Bauteile fehlen, Ergebnis: -1
-select dbo.FN_BauteileVorhanden('Sortieren',1)	--falscher Name, Ergebnis: -2
-select dbo.FN_BauteileVorhanden('Disziplinierer',0)	--falsche Anzahl, Ergebnis: -3
-select dbo.FN_BauteileVorhanden('Büro-Bote',-1)	--falsche Anzahl, Ergebnis: -3
-*/
+--Testfälle:
+--select dbo.FN_BauteileVorhanden('Aktenschwärzer',7) --alles vorhanden, Ergbenis: 0
+--select dbo.FN_BauteileVorhanden('Aktenschwärzer',8) --Bauteile fehlen, Ergebnis: -1
+--select dbo.FN_BauteileVorhanden('Fill-Phil (Aufstocker)',1)	--Bauteile fehlen, Ergebnis: -1
+--select dbo.FN_BauteileVorhanden('Sortieren',1)	--falscher Name, Ergebnis: -2
+--select dbo.FN_BauteileVorhanden('Disziplinierer',0)	--falsche Anzahl, Ergebnis: -3
+--select dbo.FN_BauteileVorhanden('Büro-Bote',-1)	--falsche Anzahl, Ergebnis: -3
 
 
 --günstigsten Lieferanten für ein Bauteil ermitteln
@@ -661,11 +659,10 @@ begin
 end
 go
 
-/*
-select dbo.FN_Lieferantenauswahl('Arm') --Ergebnis: Future Industrys
-select dbo.FN_Lieferantenauswahl('Netzteil') --Ergebnis: Trumpf
-select dbo.FN_Lieferantenauswahl('Moto') --Ergebnis: NULL
-*/
+--Testfälle:
+--select dbo.FN_Lieferantenauswahl('Arm') --Ergebnis: Future Industrys
+--select dbo.FN_Lieferantenauswahl('Netzteil') --Ergebnis: Trumpf
+--select dbo.FN_Lieferantenauswahl('Moto') --Ergebnis: NULL
 
 
 
@@ -724,11 +721,10 @@ begin catch
 end catch
 go
 
-/*
-exec P_RoboterBauteile 'Aktenschwärzer' --funktioniert
-exec P_RoboterBauteile 'Büro-Bote' --funktioniert
-exec P_RoboterBauteile 'Disziplin' --funktioniert nicht, falscher Name
-*/
+--Testfälle:
+--exec P_RoboterBauteile 'Aktenschwärzer' --funktioniert
+--exec P_RoboterBauteile 'Büro-Bote' --funktioniert
+--exec P_RoboterBauteile 'Disziplin' --funktioniert nicht, falscher Name
 
 
 --Anzeigender Kontakdaten eines Lieferanten
@@ -794,11 +790,11 @@ begin catch
 end catch
 go
 
-/*
-exec P_KontakdatenAnzeigen 'Future Industrys' --funktioniert
-exec P_KontakdatenAnzeigen 'Ben Driesel und Sohn' --funktioniert
-exec P_KontakdatenAnzeigen 'Krup' --funktioniert nicht, falscher Name
-*/
+--Testfälle:
+--exec P_KontakdatenAnzeigen 'Future Industrys' --funktioniert
+--exec P_KontakdatenAnzeigen 'Ben Driesel und Sohn' --funktioniert
+--exec P_KontakdatenAnzeigen 'Krup' --funktioniert nicht, falscher Name
+
 
 --Materialbestellungen eines Monats auflisten
 	-- Parameter:	Monatsnummer, Jahreszahl
@@ -884,15 +880,14 @@ begin catch
 end catch
 go
 
-/*
-exec P_MaterialbestellungenAnzeigen 5, 2018 --es gab Bestellungen, funktioniert
-exec P_MaterialbestellungenAnzeigen 1, 2018 --es gab keine Bestellungen, funktioniert
-exec P_MaterialbestellungenAnzeigen 10, 2017 --gültiges Jahr, gültiger Monat, es gab keine Bestellungen
-exec P_MaterialbestellungenAnzeigen 5, 2016 --Fehler: ungültiges Jahr
-exec P_MaterialbestellungenAnzeigen 9, 2017 --Fehler: gültiges Jahr, ungültiger Monat
-exec P_MaterialbestellungenAnzeigen 0, 2018 --Fehler: falscher Monat
-exec P_MaterialbestellungenAnzeigen 8, 2018 --Fehler: Monat im gegeben Jahr noch nicht erreicht
-*/
+--Testfälle:
+--exec P_MaterialbestellungenAnzeigen 5, 2018 --es gab Bestellungen, funktioniert
+--exec P_MaterialbestellungenAnzeigen 1, 2018 --es gab keine Bestellungen, funktioniert
+--exec P_MaterialbestellungenAnzeigen 10, 2017 --gültiges Jahr, gültiger Monat, es gab keine Bestellungen
+--exec P_MaterialbestellungenAnzeigen 5, 2016 --Fehler: ungültiges Jahr
+--exec P_MaterialbestellungenAnzeigen 9, 2017 --Fehler: gültiges Jahr, ungültiger Monat
+--exec P_MaterialbestellungenAnzeigen 0, 2018 --Fehler: falscher Monat
+--exec P_MaterialbestellungenAnzeigen 8, 2018 --Fehler: Monat im gegeben Jahr noch nicht erreicht
 
 
 --alle benötigeten Bauteile für einen Roboter aus dem Lager nehmen
@@ -908,7 +903,7 @@ as
 begin try
 	--Fehler auslösen, falls Bauteile fehlen
 	if (select dbo.FN_BauteileVorhanden(@RoboterName, @Anzahl)) < 0
-			throw 51000, 'Bauteille fehlen', 0
+		throw 51000, 'Bauteille fehlen', 0
 
 	declare
 	BauteileCursor cursor
@@ -979,10 +974,9 @@ begin catch
 end catch
 go
 
-/*
-exec P_MaterialReservieren 'Fill-Phil (Aufstocker)', 1 --Fehler, es fehlt 1x Magazin
-exec P_MaterialReservieren 'Aktenschwärzer', 5 --funktioniert, 2x Meldung Mindestbestand unterschritten
-*/
+--Testfälle:
+--exec P_MaterialReservieren 'Fill-Phil (Aufstocker)', 1 --Fehler, es fehlt 1x Magazin
+--exec P_MaterialReservieren 'Aktenschwärzer', 5 --funktioniert, 2x Meldung Mindestbestand unterschritten
 
 
 --alle benötigeten Bauteile für einen Roboter aus dem Lager nehmen
@@ -995,7 +989,18 @@ end
 go
 create procedure P_BauteilEinfügen(@Bauteil varchar(80), @VKPreis decimal(7,2), @MdstStk int)
 as
-begin
+begin try
+	--Fehler auslösen
+	--Bauteil existiert bereits
+	if exists (select * from Bauteile where BBezeichnung = @Bauteil)
+		throw 51000, 'Bauteil existiert bereis', 0
+	--negativer Verkaufspreis
+	else if @VKPreis < 0
+		throw 51001, 'Falsche Eingabe', 0
+	--negative Mindeststückzahl
+	else if @MdstStk < 0
+		throw 51002, 'Falsche Eingabe', 0
+
 	--Einfügen für Tabelle Bauteile
 	insert into Bauteile (BBezeichnung, VKPreis)
 	values (@Bauteil, @VKPreis)
@@ -1006,12 +1011,35 @@ begin
 
 	print concat('Bauteil ', @Bauteil, ' erfolgreich eingefügt.')
 	print concat('VKPreis: ', @VKPreis, '	Mindestbestand: ', @MdstStk)
-end
+end try
+begin catch
+	--Fehler abfangen
+		--Bauteil bereits vorhanden
+	if error_number()=51000
+	begin
+		print error_message()
+		print concat('Das Bauteil ', @Bauteil, ' existiert bereits!')
+	end
+	--negativer Verkaufspreis
+	else if error_number()=51001
+	begin
+		print error_message()
+		print concat('Der Verkaufspreis ', @VKPreis, '€ ist negativ, bitte überprüfen Sie die Eingabe!')
+	end
+	--negative Mindeststückzahl
+	else if error_number()=51002
+	begin
+		print error_message()
+		print concat('Die Mindeststückzahl ', @MdstStk, ' ist negativ, bitte überprüfen Sie die Eingabe!')
+	end
+end catch
 go
 
-/*
-exec P_BauteilEinfügen 'Stange', 13.99, 10 --funktioniert
-*/
+--Testfälle:
+--exec P_BauteilEinfügen 'Stange', 13.99, 23 --funktioniert
+--exec P_BauteilEinfügen 'Antenne', -9.99, 12 --funktioniert nicht, negativer Preis
+--exec P_BauteilEinfügen 'Kamera3', 19.99, -15 --funktioniert nicht, negative Mindeststückzahl
+--exec P_BauteilEinfügen 'Arm', 17.98, 23 --funktioniert nicht, Bauteil ist bereits vorhanden
 
 
 
@@ -1049,8 +1077,17 @@ begin
 end
 go
 
+--Testfälle:
 /*
 update Lagerbestand
 set IstStk = 0
 where BID = 13
 */
+--Meldung wird ausgegeben
+
+/*
+update Lagerbestand
+set IstStk = 20
+where BID = 13
+*/
+--keine Meldung wird ausgegeben
