@@ -463,6 +463,7 @@ go
 alter table Lieferanten
 	add
 	constraint PK_Lieferanten primary key (LID)
+,	constraint UK_LName unique (LName)
 ,	constraint FK_Lieferanten_Adressen foreign key (AdrID) references Adressen (AdrID)
 ,	constraint FK_Lieferanten_Ansprechpartner foreign key (APartnerID) references Ansprechpartner (APartnerID)
 go
@@ -535,7 +536,7 @@ go
 /******************************Erstellen der Funktionen/create function*******************************/
 --Ermitteln des Preises für einen Roboter
 	-- Parameter:	Robotername
-	-- Rückgabe:	Preis, Null falls falscher Name übergeben wurde
+	-- Rückgabe:	Preis, -1 falls falscher Name übergeben wurde
 if exists (select * from sys.objects where name = 'FN_RoboterPreis' and type = 'FN')
 begin
 	drop function FN_RoboterPreis
@@ -546,7 +547,11 @@ returns decimal(7,2)
 as
 begin
 	declare
-	@preis decimal(7,2) =	--Summe der Materialkosten der verwendeten Bauteile
+	@preis decimal(7,2)
+
+	if exists (select * from Roboter where RBezeichnung = @RoboterName)
+		begin
+			set @preis =	--Summe der Materialkosten der verwendeten Bauteile
 							(select sum(VKPreis)
 							from Roboter r join Roboterkomponenten rk on r.RID = rk.RID
 										   join Bauteile b on rk.BID = b.BID
@@ -556,6 +561,10 @@ begin
 							(select ProdKosten
 							from Roboter
 							where RBezeichnung = @RoboterName)
+		end
+	else
+		set @preis = -1
+
 	return @preis
 end
 go
@@ -563,7 +572,8 @@ go
 --Testfälle:
 --select dbo.FN_RoboterPreis('Aktenschwärzer') --Engebnis: 399,84
 --select dbo.FN_RoboterPreis('Sortierer') --Ergebnis: 409.85
---select dbo.FN_RoboterPreis('Diszipliniere') --falscher Name, Ergebnis: NULL
+--select dbo.FN_RoboterPreis('Diszipliniere') --falscher Name, Ergebnis: -1.00
+
 
 
 --Anzeigen, ob für einen Roboter alle benötigten Bauteile auf Lager sind
@@ -635,6 +645,7 @@ go
 --select dbo.FN_BauteileVorhanden('Sortieren',1)	--falscher Name, Ergebnis: -2
 --select dbo.FN_BauteileVorhanden('Disziplinierer',0)	--falsche Anzahl, Ergebnis: -3
 --select dbo.FN_BauteileVorhanden('Büro-Bote',-1)	--falsche Anzahl, Ergebnis: -3
+
 
 
 --günstigsten Lieferanten für ein Bauteil ermitteln
@@ -727,6 +738,7 @@ go
 --exec P_RoboterBauteile 'Disziplin' --funktioniert nicht, falscher Name
 
 
+
 --Anzeigender Kontakdaten eines Lieferanten
 	-- Parameter:	Lieferantenname
 	-- Rückgabe:	- 
@@ -742,15 +754,7 @@ begin try
 	--ungültiger Lieferantenname
 	if not exists (select * from Lieferanten where LName = @LieferantName)
 		throw 51000, 'Dieser Lieferant ist nicht vorhanden', 0
-	
-	declare
-	LieferantCursor cursor
-	scroll
-	for		select Email, TelFest, akadTitel, Vorname, Nachname, Land, PLZ ,Ort, Straße, HNr
-			from Lieferanten l join Ansprechpartner a on l.APartnerID = a.APartnerID
-							   join Adressen adr on adr.AdrID = l.AdrID
-			where LName = @LieferantName
-	
+
 	declare
 	@Email varchar(50)
 	,@TelFest varchar(20)
@@ -763,11 +767,11 @@ begin try
 	,@Straße varchar(50)
 	,@HNr varchar(10)
 
-	--Cursor auslesen
-	open LieferantCursor
-	fetch first 
-	from LieferantCursor
-	into @Email, @TelFest, @akadTitel, @Vorname, @Nachname, @Land, @PLZ, @Ort, @Straße, @HNr
+	select @Email = Email, @TelFest = TelFest, @akadTitel = akadTitel, @Vorname = Vorname
+				   ,@Nachname = Nachname, @Land = Land, @PLZ = PLZ, @Ort = Ort, @Straße = Straße, @HNr = HNr
+			from Lieferanten l join Ansprechpartner a on l.APartnerID = a.APartnerID
+							   join Adressen adr on adr.AdrID = l.AdrID
+			where LName = @LieferantName
 
 	--Daten aufgelistet ausgeben
 	print @LieferantName + ':'
@@ -776,8 +780,6 @@ begin try
 	print concat('EMail: ', @Email)
 	print concat('Ansprechpartner: ', @akadTitel, ' ', @Vorname, ' ', @Nachname)
 
-	close LieferantCursor
-	deallocate LieferantCursor
 end try
 begin catch
 	--Fehler abfangen
@@ -794,6 +796,7 @@ go
 --exec P_KontakdatenAnzeigen 'Future Industrys' --funktioniert
 --exec P_KontakdatenAnzeigen 'Ben Driesel und Sohn' --funktioniert
 --exec P_KontakdatenAnzeigen 'Krup' --funktioniert nicht, falscher Name
+
 
 
 --Materialbestellungen eines Monats auflisten
@@ -890,6 +893,7 @@ go
 --exec P_MaterialbestellungenAnzeigen 8, 2018 --Fehler: Monat im gegeben Jahr noch nicht erreicht
 
 
+
 --alle benötigeten Bauteile für einen Roboter aus dem Lager nehmen
 	-- Parameter:	Robotername, Anzahl der Roboter
 	-- Rückgabe:	- 
@@ -901,9 +905,13 @@ go
 create procedure P_MaterialReservieren(@RoboterName varchar(80), @Anzahl int)
 as
 begin try
-	--Fehler auslösen, falls Bauteile fehlen
-	if (select dbo.FN_BauteileVorhanden(@RoboterName, @Anzahl)) < 0
-		throw 51000, 'Bauteille fehlen', 0
+	--Fehler auslösen
+	--Bauteile fehlen
+	if not exists (select * from Roboter where RBezeichnung = @RoboterName)
+		throw 51000, 'Falsche Eingabe', 0
+	--Bauteile fehlen
+	else if (select dbo.FN_BauteileVorhanden(@RoboterName, @Anzahl)) < 0
+		throw 51001, 'Bauteille fehlen', 0
 
 	declare
 	BauteileCursor cursor
@@ -937,8 +945,14 @@ begin try
 end try
 begin catch
 	--Fehler abfangen
-	--Bauteile fehlen
+	--Falscher Robotername
 	if error_number()=51000
+		begin
+			print error_message()
+			print concat('Der Roboter ', @RoboterName, ' existiert nicht, bitter überprüfen Sie die Eingabe!')
+		end
+	--Bauteile fehlen
+	else if error_number()=51001
 		begin
 			print error_message()
 			print concat('Für den Roboter ', @RoboterName, ' fehlen folgende Bauteile:')
@@ -975,12 +989,14 @@ end catch
 go
 
 --Testfälle:
+--exec P_MaterialReservieren 'Kaffeeholer', 1 --Fehler, Roboter existiert nicht
 --exec P_MaterialReservieren 'Fill-Phil (Aufstocker)', 1 --Fehler, es fehlt 1x Magazin
 --exec P_MaterialReservieren 'Aktenschwärzer', 5 --funktioniert, 2x Meldung Mindestbestand unterschritten
 
 
---alle benötigeten Bauteile für einen Roboter aus dem Lager nehmen
-	-- Parameter:	Robotername, Anzahl der Roboter
+
+--neue Bauteile aufnehmen
+	-- Parameter:	Bauteilname, Verkaufspreis, Mindeststückzahl im Lager
 	-- Rückgabe:	- 
 if exists (select * from sys.objects where name= 'P_BauteilEinfügen' and type= 'P')
 begin
