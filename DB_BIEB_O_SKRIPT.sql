@@ -607,7 +607,7 @@ begin
 		end
 
 	declare
-	KostenCursor cursor
+	BauteilCursor cursor
 	scroll
 	for			select IstStk, RKStückzahl
 				from Roboter r join Roboterkomponenten rk on r.RID = rk.RID
@@ -616,9 +616,9 @@ begin
 
 	declare @istStk int, @rkStk int
 
-	open KostenCursor
+	open BauteilCursor
 	fetch first
-	from KostenCursor 
+	from BauteilCursor 
 	into @istStk, @rkStk
 
 	while @@FETCH_STATUS = 0
@@ -631,7 +631,7 @@ begin
 					break
 				end
 			fetch next
-			from KostenCursor 
+			from BauteilCursor 
 			into @istStk, @rkStk
 		end
 	return @rueck
