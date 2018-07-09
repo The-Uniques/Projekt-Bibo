@@ -906,12 +906,12 @@ create procedure P_MaterialReservieren(@RoboterName varchar(80), @Anzahl int)
 as
 begin try
 	--Fehler auslösen
-	--Bauteile fehlen
+	--Roboter nicht vorhanden
 	if not exists (select * from Roboter where RBezeichnung = @RoboterName)
 		throw 51000, 'Falsche Eingabe', 0
 	--Bauteile fehlen
 	else if (select dbo.FN_BauteileVorhanden(@RoboterName, @Anzahl)) < 0
-		throw 51001, 'Bauteille fehlen', 0
+		throw 51001, 'Bauteile fehlen', 0
 
 	declare
 	BauteileCursor cursor
@@ -1024,7 +1024,7 @@ begin try
 	--Einfügen für Tabelle Lagerbestand
 	insert into Lagerbestand (LagerID, BID, MdstStk)
 	values (1, (select BID from Bauteile where BBezeichnung = @Bauteil), @MdstStk) 
-	--LID = 1, da zwar für mehrere Lager vorbereitet, aber noch nicht im Detail implementiert
+	--LagerID = 1, da zwar für mehrere Lager vorbereitet, aber noch nicht im Detail implementiert
 
 	print concat('Bauteil ', @Bauteil, ' erfolgreich eingefügt.')
 	print concat('VKPreis: ', @VKPreis, '	Mindestbestand: ', @MdstStk)
