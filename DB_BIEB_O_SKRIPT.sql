@@ -1023,7 +1023,8 @@ begin try
 
 	--Einfügen für Tabelle Lagerbestand
 	insert into Lagerbestand (LagerID, BID, MdstStk)
-	values (1, (select BID from Bauteile where BBezeichnung = @Bauteil), @MdstStk)
+	values (1, (select BID from Bauteile where BBezeichnung = @Bauteil), @MdstStk) 
+	--LID = 1, da zwar für mehrere Lager vorbereitet, aber noch nicht im Detail implementiert
 
 	print concat('Bauteil ', @Bauteil, ' erfolgreich eingefügt.')
 	print concat('VKPreis: ', @VKPreis, '	Mindestbestand: ', @MdstStk)
