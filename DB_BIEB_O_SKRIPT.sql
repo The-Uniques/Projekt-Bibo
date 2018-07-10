@@ -727,8 +727,10 @@ begin catch
 	if error_number()=51000
 		begin
 			print error_message()
-			print concat('Der Roboter ', @RoboterName, ' ist nicht vorhnaden, bitte überprüfen Sie den Namen!')
+			print concat('Der Roboter ', @RoboterName, ' ist nicht vorhanden, bitte überprüfen Sie den Namen!')
 		end
+	else
+		print error_message()
 end catch
 go
 
@@ -789,6 +791,8 @@ begin catch
 			print error_message()
 			print concat('Der Lieferant ', @Lieferantname, ' ist nicht vorhnaden, bitte überprüfen Sie den Namen!')
 		end
+	else
+		print error_message()
 end catch
 go
 
@@ -864,22 +868,24 @@ begin catch
 	--Fehler abfangen
 	--ungültige Monatsnummer
 	if error_number()=51000
-	begin
-		print error_message()
-		print concat('Der Monat ', @Monat, ' existiert nicht, bitte überprüfen Sie die Eingabe!')
-	end
+		begin
+			print error_message()
+			print concat('Der Monat ', @Monat, ' existiert nicht, bitte überprüfen Sie die Eingabe!')
+		end
 	--Abfrage liegt in der zukunft
 	if error_number()=51001
-	begin
-		print error_message()
-		print concat('Der Monat ', @Monat, ' ', @Jahr, ' liegt in der Zukunft, bitte überprüfen Sie die Eingabe!')
-	end
+		begin
+			print error_message()
+			print concat('Der Monat ', @Monat, ' ', @Jahr, ' liegt in der Zukunft, bitte überprüfen Sie die Eingabe!')
+		end
 	--ungültiges jahr
 	else if error_number()=51002
-	begin
+		begin
+			print error_message()
+			print concat('Der Monat ', @Monat, ' ', @Jahr, ' liegt vor der Gründung von Bieb.O, bitte überprüfen Sie die Eingabe!')
+		end
+	else
 		print error_message()
-		print concat('Der Monat ', @Monat, ' ', @Jahr, ' liegt vor der Gründung von Bieb.O, bitte überprüfen Sie die Eingabe!')
-	end
 end catch
 go
 
@@ -890,6 +896,7 @@ go
 --exec P_MaterialbestellungenAnzeigen 5, 2016 --Fehler: ungültiges Jahr
 --exec P_MaterialbestellungenAnzeigen 9, 2017 --Fehler: gültiges Jahr, ungültiger Monat
 --exec P_MaterialbestellungenAnzeigen 0, 2018 --Fehler: falscher Monat
+--exec P_MaterialbestellungenAnzeigen 13, 2018 --Fehler: falscher Monat
 --exec P_MaterialbestellungenAnzeigen 8, 2018 --Fehler: Monat im gegeben Jahr noch nicht erreicht
 
 
@@ -985,6 +992,8 @@ begin catch
 			close FehlteileCursor
 			deallocate FehlteileCursor
 		end
+	else
+		print error_message()
 end catch
 go
 
@@ -1033,22 +1042,24 @@ begin catch
 	--Fehler abfangen
 		--Bauteil bereits vorhanden
 	if error_number()=51000
-	begin
-		print error_message()
-		print concat('Das Bauteil ', @Bauteil, ' existiert bereits!')
-	end
+		begin
+			print error_message()
+			print concat('Das Bauteil ', @Bauteil, ' existiert bereits!')
+		end
 	--negativer Verkaufspreis
 	else if error_number()=51001
-	begin
-		print error_message()
-		print concat('Der Verkaufspreis ', @VKPreis, '€ ist negativ, bitte überprüfen Sie die Eingabe!')
-	end
+		begin
+			print error_message()
+			print concat('Der Verkaufspreis ', @VKPreis, '€ ist negativ, bitte überprüfen Sie die Eingabe!')
+		end
 	--negative Mindeststückzahl
 	else if error_number()=51002
-	begin
+		begin
+			print error_message()
+			print concat('Die Mindeststückzahl ', @MdstStk, ' ist negativ, bitte überprüfen Sie die Eingabe!')
+		end
+	else
 		print error_message()
-		print concat('Die Mindeststückzahl ', @MdstStk, ' ist negativ, bitte überprüfen Sie die Eingabe!')
-	end
 end catch
 go
 
